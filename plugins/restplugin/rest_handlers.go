@@ -15,17 +15,18 @@
 package restplugin
 
 import (
-	"github.com/gorilla/mux"
 	"encoding/json"
 	"git.fd.io/govpp.git/core/bin_api/vpe"
-	"github.com/unrolled/render"
-	"io/ioutil"
-	"net/http"
-	"strconv"
+	"github.com/gorilla/mux"
+	"github.com/ligato/vpp-agent/plugins/defaultplugins/aclplugin/model/acl"
 	acldump "github.com/ligato/vpp-agent/plugins/defaultplugins/aclplugin/vppdump"
 	ifplugin "github.com/ligato/vpp-agent/plugins/defaultplugins/ifplugin/vppdump"
 	l2plugin "github.com/ligato/vpp-agent/plugins/defaultplugins/l2plugin/vppdump"
 	l3plugin "github.com/ligato/vpp-agent/plugins/defaultplugins/l3plugin/vppdump"
+	"github.com/unrolled/render"
+	"io/ioutil"
+	"net/http"
+	"strconv"
 )
 
 //interfacesGetHandler - used to get list of all interfaces
@@ -216,7 +217,109 @@ func (plugin *RESTAPIPlugin) interfaceACLGetHandler(formatter *render.Render) ht
 			return
 		}
 
-		res, err := acldump.DumpInterfaceAcls(plugin.Deps.Log,  swIndex, ch, nil)
+		res, err := acldump.DumpInterfaceAcls(plugin.Deps.Log, swIndex, ch, nil)
+		if err != nil {
+			plugin.Deps.Log.Errorf("Error: %v", err)
+			formatter.JSON(w, http.StatusInternalServerError, err)
+			return
+		}
+
+		plugin.Deps.Log.Debug(res)
+		formatter.JSON(w, http.StatusOK, res)
+	}
+}
+
+//interfaceACLGetHandler - used to get acl configuration for a particular interface
+func (plugin *RESTAPIPlugin) exampleACLGetHandler(formatter *render.Render) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+
+		plugin.Deps.Log.Info("Getting example acl")
+
+		ipRule := acl.AccessLists_Acl_Rule_Matches_IpRule{
+			Ip: &acl.AccessLists_Acl_Rule_Matches_IpRule_Ip{
+				DestinationNetwork: "1.2.3.4/24",
+				SourceNetwork:      "5.6.7.8/24"},
+			Tcp: &acl.AccessLists_Acl_Rule_Matches_IpRule_Tcp{
+				DestinationPortRange: &acl.AccessLists_Acl_Rule_Matches_IpRule_Tcp_DestinationPortRange{
+					LowerPort: 80,
+					UpperPort: 8080,
+				},
+				SourcePortRange: &acl.AccessLists_Acl_Rule_Matches_IpRule_Tcp_SourcePortRange{
+					LowerPort: 10,
+					UpperPort: 1010,
+				},
+				TcpFlagsMask:  0xFF,
+				TcpFlagsValue: 9,
+			},
+		}
+		matches := acl.AccessLists_Acl_Rule_Matches{
+			IpRule: &ipRule,
+		}
+
+		actions := acl.AccessLists_Acl_Rule_Actions{
+			AclAction: acl.AclAction_PERMIT,
+		}
+
+		rule := acl.AccessLists_Acl_Rule{
+			Matches: &matches,
+			Actions: &actions,
+		}
+		rules := []*acl.AccessLists_Acl_Rule{&rule}
+
+		aclRes := acl.AccessLists_Acl{
+			AclName: "example",
+			Rules:   rules,
+		}
+
+		plugin.Deps.Log.Debug(aclRes)
+		formatter.JSON(w, http.StatusOK, aclRes)
+	}
+}
+
+//interfaceACLPostHandler - used to get acl configuration for a particular interface
+func (plugin *RESTAPIPlugin) interfaceACLPostHandler(formatter *render.Render) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		vars := mux.Vars(req)
+		if vars == nil {
+			plugin.Deps.Log.Error("Interface software index not specified.")
+			formatter.JSON(w, http.StatusNotFound, struct{}{})
+			return
+		}
+
+		plugin.Deps.Log.Infof("Configuring ACL on interface %s", vars[swIndexVarName])
+
+		swIndexuInt64, err := strconv.ParseUint(vars[swIndexVarName], 10, 32)
+		if err != nil {
+			plugin.Deps.Log.Error("Failed to unmarshal request body.")
+			formatter.JSON(w, http.StatusBadRequest, err)
+			return
+		}
+
+		body, err := ioutil.ReadAll(req.Body)
+		if err != nil {
+			plugin.Deps.Log.Error("Failed to parse request body.")
+			formatter.JSON(w, http.StatusBadRequest, err)
+			return
+		}
+		aclParam := acl.AccessLists_Acl{}
+		err = json.Unmarshal(body, &aclParam)
+		if err != nil {
+			plugin.Deps.Log.Error("Failed to unmarshal request body.")
+			formatter.JSON(w, http.StatusBadRequest, err)
+			return
+		}
+
+		swIndex := uint32(swIndexuInt64)
+		// create an API channel
+		ch, err := plugin.Deps.GoVppmux.NewAPIChannel()
+		defer ch.Close()
+		if err != nil {
+			plugin.Deps.Log.Errorf("Error: %v", err)
+			formatter.JSON(w, http.StatusInternalServerError, err)
+			return
+		}
+
+		res, err := acldump.DumpInterfaceAcls(plugin.Deps.Log, swIndex, ch, nil)
 		if err != nil {
 			plugin.Deps.Log.Errorf("Error: %v", err)
 			formatter.JSON(w, http.StatusInternalServerError, err)
