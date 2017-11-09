@@ -20,6 +20,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/ligato/vpp-agent/plugins/defaultplugins/aclplugin/model/acl"
 	acldump "github.com/ligato/vpp-agent/plugins/defaultplugins/aclplugin/vppdump"
+	aclvpp  "github.com/ligato/vpp-agent/plugins/defaultplugins/aclplugin/vppcalls"
 	ifplugin "github.com/ligato/vpp-agent/plugins/defaultplugins/ifplugin/vppdump"
 	l2plugin "github.com/ligato/vpp-agent/plugins/defaultplugins/l2plugin/vppdump"
 	l3plugin "github.com/ligato/vpp-agent/plugins/defaultplugins/l3plugin/vppdump"
@@ -230,6 +231,33 @@ func (plugin *RESTAPIPlugin) interfaceACLGetHandler(formatter *render.Render) ht
 }
 
 //interfaceACLGetHandler - used to get acl configuration for a particular interface
+func (plugin *RESTAPIPlugin) aclGetHandler(formatter *render.Render) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+
+		plugin.Deps.Log.Info("Getting acls")
+
+		// create an API channel
+		ch, err := plugin.Deps.GoVppmux.NewAPIChannel()
+		defer ch.Close()
+		if err != nil {
+			plugin.Deps.Log.Errorf("Error: %v", err)
+			formatter.JSON(w, http.StatusInternalServerError, err)
+			return
+		}
+
+		res, err := acldump.DumpInterfaceAcls(plugin.Deps.Log, swIndex, ch, nil)
+		if err != nil {
+			plugin.Deps.Log.Errorf("Error: %v", err)
+			formatter.JSON(w, http.StatusInternalServerError, err)
+			return
+		}
+
+		plugin.Deps.Log.Debug(res)
+		formatter.JSON(w, http.StatusOK, res)
+	}
+}
+
+//interfaceACLGetHandler - used to get acl configuration for a particular interface
 func (plugin *RESTAPIPlugin) exampleACLGetHandler(formatter *render.Render) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 
@@ -276,23 +304,13 @@ func (plugin *RESTAPIPlugin) exampleACLGetHandler(formatter *render.Render) http
 	}
 }
 
-//interfaceACLPostHandler - used to get acl configuration for a particular interface
-func (plugin *RESTAPIPlugin) interfaceACLPostHandler(formatter *render.Render) http.HandlerFunc {
+
+//ipACLPostHandler - used to get acl configuration for a particular interface
+func (plugin *RESTAPIPlugin) ipACLPostHandler(formatter *render.Render) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
-		vars := mux.Vars(req)
-		if vars == nil {
-			plugin.Deps.Log.Error("Interface software index not specified.")
-			formatter.JSON(w, http.StatusNotFound, struct{}{})
-			return
-		}
 
-		plugin.Deps.Log.Infof("Configuring ACL on interface %s", vars[swIndexVarName])
-
-		swIndexuInt64, err := strconv.ParseUint(vars[swIndexVarName], 10, 32)
-		if err != nil {
-			plugin.Deps.Log.Error("Failed to unmarshal request body.")
-			formatter.JSON(w, http.StatusBadRequest, err)
-			return
+		type AclIndex struct {
+			Idx uint32 `json:"aclindex"`
 		}
 
 		body, err := ioutil.ReadAll(req.Body)
@@ -309,7 +327,6 @@ func (plugin *RESTAPIPlugin) interfaceACLPostHandler(formatter *render.Render) h
 			return
 		}
 
-		swIndex := uint32(swIndexuInt64)
 		// create an API channel
 		ch, err := plugin.Deps.GoVppmux.NewAPIChannel()
 		defer ch.Close()
@@ -319,15 +336,16 @@ func (plugin *RESTAPIPlugin) interfaceACLPostHandler(formatter *render.Render) h
 			return
 		}
 
-		res, err := acldump.DumpInterfaceAcls(plugin.Deps.Log, swIndex, ch, nil)
+		aclIndex := AclIndex{}
+		aclIndex.Idx, err = aclvpp.AddIPAcl(aclParam.Rules, aclParam.AclName, plugin.Deps.Log, ch, nil)
 		if err != nil {
 			plugin.Deps.Log.Errorf("Error: %v", err)
-			formatter.JSON(w, http.StatusInternalServerError, err)
+			formatter.JSON(w, http.StatusInternalServerError, aclIndex)
 			return
 		}
 
-		plugin.Deps.Log.Debug(res)
-		formatter.JSON(w, http.StatusOK, res)
+		plugin.Deps.Log.Debug(aclIndex)
+		formatter.JSON(w, http.StatusOK, aclIndex)
 	}
 }
 

@@ -55,8 +55,7 @@ func (plugin *RESTAPIPlugin) AfterInit() (err error) {
 	plugin.Deps.HTTPHandlers.RegisterHTTPHandler("/acl/example", plugin.exampleACLGetHandler, "GET")
 	plugin.Deps.HTTPHandlers.RegisterHTTPHandler(fmt.Sprintf("/acl/interface/{%s:[0-9]+}", swIndexVarName),
 		plugin.interfaceACLGetHandler, "GET")
-	plugin.Deps.HTTPHandlers.RegisterHTTPHandler(fmt.Sprintf("/acl/interface/{%s:[0-9]+}", swIndexVarName),
-		plugin.interfaceACLPostHandler, "POST")
+	plugin.Deps.HTTPHandlers.RegisterHTTPHandler("/acl", plugin.ipACLPostHandler, "POST")
 
 	plugin.Deps.HTTPHandlers.RegisterHTTPHandler("/", plugin.showCommandHandler, "POST")
 

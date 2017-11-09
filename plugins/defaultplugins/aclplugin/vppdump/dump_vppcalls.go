@@ -56,7 +56,7 @@ func DumpInterfaceAcls(log logging.Logger, swIndex uint32, vppChannel *govppapi.
 	}
 
 	for aidx := range res.Acls {
-		ipACL, err := getIPACLDetails(vppChannel, aidx)
+		ipACL, err := getIPACLDetails(vppChannel, uint32(aidx))
 		if err != nil {
 			log.Error(err)
 		} else {
@@ -67,7 +67,10 @@ func DumpInterfaceAcls(log logging.Logger, swIndex uint32, vppChannel *govppapi.
 }
 
 // DumpIPAcl test function
-func DumpIPAcl(log logging.Logger, vppChannel *govppapi.Channel, timeLog measure.StopWatchEntry) error {
+func DumpIPAcl(log logging.Logger, vppChannel *govppapi.Channel,
+	timeLog measure.StopWatchEntry) (*acl.AccessLists, error) {
+
+	acll := []*acl.AccessLists_Acl{}
 	// ACLDump time measurement
 	start := time.Now()
 	defer func() {
@@ -83,15 +86,21 @@ func DumpIPAcl(log logging.Logger, vppChannel *govppapi.Channel, timeLog measure
 		msg := &acl_api.ACLDetails{}
 		stop, err := reqContext.ReceiveReply(msg)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if stop {
 			break
 		}
 		log.Infof("ACL index: %v, rule count: %v, tag: %v", msg.ACLIndex, msg.Count, string(msg.Tag[:]))
+		aclp, err := getIPACLDetails(vppChannel, msg.ACLIndex)
+		if err != nil {
+			return nil, err
+		}
+		acll = append(acll, aclp)
 
 	}
-	return nil
+
+	return &acl.AccessLists{Acl: acll}, nil
 }
 
 // DumpMacIPAcl test function
@@ -155,7 +164,7 @@ func DumpInterfaces(swIndexes idxvpp.NameToIdxRW, log logging.Logger, vppChannel
 
 // getIPACLDetails gets details for a given IP ACL from VPP and translates
 // them from the binary VPP API format into the ACL Plugin's NB format.
-func getIPACLDetails(vppChannel *govppapi.Channel, idx int) (*acl.AccessLists_Acl, error) {
+func getIPACLDetails(vppChannel *govppapi.Channel, idx uint32) (*acl.AccessLists_Acl, error) {
 	req := &acl_api.ACLDump{}
 	req.ACLIndex = uint32(idx)
 
