@@ -230,8 +230,8 @@ func (plugin *RESTAPIPlugin) interfaceACLGetHandler(formatter *render.Render) ht
 	}
 }
 
-//interfaceACLGetHandler - used to get acl configuration for a particular interface
-func (plugin *RESTAPIPlugin) aclGetHandler(formatter *render.Render) http.HandlerFunc {
+//ipACLGetHandler - used to get acl configuration for a particular interface
+func (plugin *RESTAPIPlugin) ipACLGetHandler(formatter *render.Render) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 
 		plugin.Deps.Log.Info("Getting acls")
@@ -245,7 +245,7 @@ func (plugin *RESTAPIPlugin) aclGetHandler(formatter *render.Render) http.Handle
 			return
 		}
 
-		res, err := acldump.DumpInterfaceAcls(plugin.Deps.Log, swIndex, ch, nil)
+		res, err := acldump.DumpIPAcl(plugin.Deps.Log, ch, nil)
 		if err != nil {
 			plugin.Deps.Log.Errorf("Error: %v", err)
 			formatter.JSON(w, http.StatusInternalServerError, err)

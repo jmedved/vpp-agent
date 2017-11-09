@@ -25,6 +25,7 @@ import (
 	"github.com/ligato/vpp-agent/plugins/defaultplugins/aclplugin/vppcalls"
 	"net"
 	"time"
+	"bytes"
 )
 
 // DumpInterfaceAcls finds interface in VPP and returns its ACL configuration
@@ -67,21 +68,20 @@ func DumpInterfaceAcls(log logging.Logger, swIndex uint32, vppChannel *govppapi.
 }
 
 // DumpIPAcl test function
-func DumpIPAcl(log logging.Logger, vppChannel *govppapi.Channel,
-	timeLog measure.StopWatchEntry) (*acl.AccessLists, error) {
+func DumpIPAcl(log logging.Logger, vch *govppapi.Channel, tl measure.StopWatchEntry) (*acl.AccessLists, error) {
 
 	acll := []*acl.AccessLists_Acl{}
 	// ACLDump time measurement
 	start := time.Now()
 	defer func() {
-		if timeLog != nil {
-			timeLog.LogTimeEntry(time.Since(start))
+		if tl != nil {
+			tl.LogTimeEntry(time.Since(start))
 		}
 	}()
 
 	req := &acl_api.ACLDump{}
 	req.ACLIndex = 0xffffffff
-	reqContext := vppChannel.SendMultiRequest(req)
+	reqContext := vch.SendMultiRequest(req)
 	for {
 		msg := &acl_api.ACLDetails{}
 		stop, err := reqContext.ReceiveReply(msg)
@@ -92,7 +92,7 @@ func DumpIPAcl(log logging.Logger, vppChannel *govppapi.Channel,
 			break
 		}
 		log.Infof("ACL index: %v, rule count: %v, tag: %v", msg.ACLIndex, msg.Count, string(msg.Tag[:]))
-		aclp, err := getIPACLDetails(vppChannel, msg.ACLIndex)
+		aclp, err := getIPACLDetails(vch, msg.ACLIndex)
 		if err != nil {
 			return nil, err
 		}
@@ -194,7 +194,7 @@ func getIPACLDetails(vppChannel *govppapi.Channel, idx uint32) (*acl.AccessLists
 		rules = append(rules, &rule)
 	}
 
-	return &acl.AccessLists_Acl{Rules: rules, AclName: string(reply.Tag)}, nil
+	return &acl.AccessLists_Acl{Rules: rules, AclName: string(bytes.Trim(reply.Tag, "\x00"))}, nil
 }
 
 // getIPRule translates an IP rule from the binary VPP API format into the
