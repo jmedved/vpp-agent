@@ -35,6 +35,7 @@ import (
 	"time"
 
 	govppapi "git.fd.io/govpp.git/api"
+	"git.fd.io/govpp.git/core/bin_api/vpe"
 	"github.com/ligato/cn-infra/logging"
 	"github.com/ligato/cn-infra/logging/measure"
 	"github.com/ligato/cn-infra/servicelabel"
@@ -95,7 +96,7 @@ func (plugin *InterfaceConfigurator) Init(swIfIndexes ifaceidx.SwIfIndexRW, mtu 
 		return err
 	}
 
-	plugin.afPacketConfigurator = &AFPacketConfigurator{Logger: plugin.Log, Linux: plugin.Linux, Stopwatch: plugin.Stopwatch}
+	plugin.afPacketConfigurator = &AFPacketConfigurator{Logger: plugin.Log, Linux: plugin.Linux, SwIfIndexes: plugin.swIfIndexes, Stopwatch: plugin.Stopwatch}
 	plugin.afPacketConfigurator.Init(plugin.vppCh)
 
 	return nil
@@ -123,7 +124,7 @@ func (plugin *InterfaceConfigurator) LookupVPPInterfaces() error {
 			return err
 		}
 
-		// store the name to index mapping if it does not exist yet
+		// store the name-to-index mapping if it does not exist yet
 		_, _, found := plugin.swIfIndexes.LookupName(msg.SwIfIndex)
 		if !found {
 			ifName := string(bytes.Trim(msg.InterfaceName, "\x00"))
@@ -163,7 +164,7 @@ func (plugin *InterfaceConfigurator) ConfigureVPPInterface(iface *intf.Interface
 	case intf.InterfaceType_VXLAN_TUNNEL:
 		ifIdx, err = vppcalls.AddVxlanTunnel(iface.Vxlan, iface.Vrf, plugin.vppCh, measure.GetTimeLog(vxlan.VxlanAddDelTunnelReply{}, plugin.Stopwatch))
 	case intf.InterfaceType_SOFTWARE_LOOPBACK:
-		ifIdx, err = vppcalls.AddLoopbackInterface(plugin.vppCh, measure.GetTimeLog(interfaces.CreateLoopback{}, plugin.Stopwatch))
+		ifIdx, err = vppcalls.AddLoopbackInterface(plugin.vppCh, measure.GetTimeLog(vpe.CreateLoopback{}, plugin.Stopwatch))
 	case intf.InterfaceType_ETHERNET_CSMACD:
 		ifIdx, _, exists = plugin.swIfIndexes.LookupIdx(iface.Name)
 		if !exists {
@@ -230,8 +231,10 @@ func (plugin *InterfaceConfigurator) ConfigureVPPInterface(iface *intf.Interface
 		}
 	}
 
-	// register name to idx mapping
-	plugin.swIfIndexes.RegisterName(iface.Name, ifIdx, iface)
+	// register name to idx mapping if it is not an af_packet interface type (it is registered in ConfigureAfPacketInterface if needed)
+	if iface.Type != intf.InterfaceType_AF_PACKET_INTERFACE {
+		plugin.swIfIndexes.RegisterName(iface.Name, ifIdx, iface)
+	}
 	plugin.Log.WithFields(logging.Fields{"ifName": iface.Name, "ifIdx": ifIdx}).Info("Configured interface")
 
 	// set interface up if enabled
@@ -251,21 +254,21 @@ func (plugin *InterfaceConfigurator) ConfigureVPPInterface(iface *intf.Interface
 }
 
 /**
-	Set rx-mode on specified VPP interface
+Set rx-mode on specified VPP interface
 
-	Legend:
-	P - polling
-	I - interrupt
-	A - adaptive
+Legend:
+P - polling
+I - interrupt
+A - adaptive
 
-	Interfaces - supported modes:
-	* tap interface - PIA
-	* memory interface - PIA
-	* vxlan tunnel - PIA
-	* software loopback - PIA
-	* ethernet csmad - P
-	* af packet - PIA
- */
+Interfaces - supported modes:
+* tap interface - PIA
+* memory interface - PIA
+* vxlan tunnel - PIA
+* software loopback - PIA
+* ethernet csmad - P
+* af packet - PIA
+*/
 func (plugin *InterfaceConfigurator) configRxModeForInterface(iface *intf.Interfaces_Interface, ifIdx uint32) error {
 	rxModeSettings := iface.RxModeSettings
 	if rxModeSettings != nil {
@@ -282,8 +285,8 @@ func (plugin *InterfaceConfigurator) configRxModeForInterface(iface *intf.Interf
 }
 
 /**
-	Call concrete vpp API method for setting rx-mode
- */
+Call concrete vpp API method for setting rx-mode
+*/
 func (plugin *InterfaceConfigurator) configRxMode(iface *intf.Interfaces_Interface, ifIdx uint32, rxModeSettings intf.Interfaces_Interface_RxModeSettings) error {
 	err := vppcalls.SetRxMode(ifIdx, rxModeSettings, plugin.Log, plugin.vppCh,
 		measure.GetTimeLog(interfaces.SwInterfaceSetRxMode{}, plugin.Stopwatch))
@@ -291,7 +294,6 @@ func (plugin *InterfaceConfigurator) configRxMode(iface *intf.Interfaces_Interfa
 		Debug("RX-mode configuration for ", iface.Type, ".")
 	return err
 }
-
 
 // ModifyVPPInterface applies changes in the NB configuration of a VPP interface into the running VPP
 // through the VPP binary API.
@@ -466,8 +468,8 @@ func (plugin *InterfaceConfigurator) modifyVPPInterface(newConfig *intf.Interfac
 }
 
 /**
-	Modify rx-mode on specified VPP interface
- */
+Modify rx-mode on specified VPP interface
+*/
 func (plugin *InterfaceConfigurator) modifyRxModeForInterfaces(oldIntf *intf.Interfaces_Interface, newIntf *intf.Interfaces_Interface,
 	ifIdx uint32) error {
 	oldRxSettings := oldIntf.RxModeSettings
@@ -486,7 +488,7 @@ func (plugin *InterfaceConfigurator) modifyRxModeForInterfaces(oldIntf *intf.Int
 				if newRxSettings.RxMode == intf.RxModeType_POLLING {
 					return plugin.modifyRxMode(ifIdx, newIntf, oldRxMode, *newRxSettings)
 				}
-				plugin.Log.WithFields(logging.Fields{"rx-mode":newRxSettings.RxMode}).
+				plugin.Log.WithFields(logging.Fields{"rx-mode": newRxSettings.RxMode}).
 					Warn("Attempt to set unsupported rx-mode on Ethernet interface.")
 			default:
 				return plugin.modifyRxMode(ifIdx, newIntf, oldRxMode, *newRxSettings)
@@ -510,8 +512,8 @@ func (plugin *InterfaceConfigurator) modifyRxModeForInterfaces(oldIntf *intf.Int
 }
 
 /**
-	Direct call of vpp api to change rx-mode of specified interface
- */
+Direct call of vpp api to change rx-mode of specified interface
+*/
 func (plugin *InterfaceConfigurator) modifyRxMode(ifIdx uint32, newIntf *intf.Interfaces_Interface,
 	oldRxMode intf.RxModeType, newRxMode intf.Interfaces_Interface_RxModeSettings) error {
 	err := vppcalls.SetRxMode(ifIdx, *newIntf.RxModeSettings, plugin.Log, plugin.vppCh,
@@ -567,7 +569,6 @@ func (plugin *InterfaceConfigurator) deleteVPPInterface(oldConfig *intf.Interfac
 	if nil != err {
 		wasError = err
 
-
 	}
 
 	// let's try to do following even if previously error occurred
@@ -598,7 +599,7 @@ func (plugin *InterfaceConfigurator) deleteVPPInterface(oldConfig *intf.Interfac
 	case intf.InterfaceType_VXLAN_TUNNEL:
 		err = vppcalls.DeleteVxlanTunnel(oldConfig.GetVxlan(), plugin.vppCh, measure.GetTimeLog(vxlan.VxlanAddDelTunnel{}, plugin.Stopwatch))
 	case intf.InterfaceType_SOFTWARE_LOOPBACK:
-		err = vppcalls.DeleteLoopbackInterface(ifIdx, plugin.vppCh, measure.GetTimeLog(interfaces.DeleteLoopback{}, plugin.Stopwatch))
+		err = vppcalls.DeleteLoopbackInterface(ifIdx, plugin.vppCh, measure.GetTimeLog(vpe.DeleteLoopback{}, plugin.Stopwatch))
 	case intf.InterfaceType_ETHERNET_CSMACD:
 		return errors.New("it is not yet supported to remove (blacklist) physical interface")
 	case intf.InterfaceType_AF_PACKET_INTERFACE:

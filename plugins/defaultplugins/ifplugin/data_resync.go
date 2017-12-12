@@ -40,7 +40,7 @@ func (plugin *InterfaceConfigurator) Resync(nbIfaces []*intf.Interfaces_Interfac
 		}
 	}()
 
-	// Step 0: Dump actual state of the VPP
+	// Step 0: Dump current state of the VPP
 	vppIfaces, err := vppdump.DumpInterfaces(plugin.Log, plugin.vppCh, plugin.Stopwatch)
 	if err != nil {
 		return err
@@ -108,10 +108,6 @@ func (plugin *InterfaceConfigurator) Resync(nbIfaces []*intf.Interfaces_Interfac
 			err := plugin.modifyVPPInterface(nbIface, &vppIface.Interfaces_Interface, swIfIdx, vppIface.Type)
 			if err != nil {
 				wasError = err
-			}
-			if !plugin.afPacketConfigurator.IsPendingAfPacket(nbIface) {
-				// even if error occurred (because there is still swIfIndex)
-				plugin.swIfIndexes.RegisterName(nbIface.Name, swIfIdx, nbIface)
 			}
 		} else {
 			toBeConfigured = append(toBeConfigured, nbIface)

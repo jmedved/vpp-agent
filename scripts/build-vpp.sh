@@ -3,7 +3,7 @@ set -e
 
 VPP_CACHE_DIR=$HOME/build-cache/vpp
 
-VPP_COMMIT="227867f5d3fb1b1dacbaf2f426812417b72ef03a"
+VPP_COMMIT="c62a63dd05bd815cd9ea399140cb6fc50a584132"
 VPP_IMG_TAG=`echo ${VPP_COMMIT} | cut -c1-7`
 
 # check if cache folder contains same version
